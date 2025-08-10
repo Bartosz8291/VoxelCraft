@@ -1,0 +1,75 @@
+R8BH5<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>VoxelCraft</title>
+<style>
+html,body{height:100%;margin:0;background:#87ceeb;overflow:hidden}
+#game{width:100vw;height:100vh;display:block}
+.crosshair{position:fixed;left:50%;top:50%;width:2px;height:18px;background:#000;transform:translate(-50%,-50%);pointer-events:none}
+.crosshair:before{content:'';position:absolute;left:50%;top:50%;width:18px;height:2px;background:#000;transform:translate(-50%,-50%)}
+#hotbar{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);display:flex;gap:8px;pointer-events:auto}
+.slot{width:48px;height:48px;border:2px solid rgba(0,0,0,0.5);background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-weight:bold;color:#111}
+.slot.active{outline:3px solid #ffd700}
+#instructions{position:fixed;left:10px;top:10px;background:rgba(255,255,255,0.8);padding:8px;border-radius:6px;font-family:sans-serif}
+#stats{position:fixed;right:10px;top:10px;background:rgba(255,255,255,0.8);padding:8px;border-radius:6px;font-family:sans-serif}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="instructions">Click to play. WASD to move, Space to jump, Left click to remove, Right click to place</div>
+<div id="stats"></div>
+<div class="crosshair"></div>
+<div id="hotbar"></div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/examples/js/controls/PointerLockControls.js"></script>
+<script>
+const canvas=document.getElementById('game')
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true})
+renderer.setPixelRatio(window.devicePixelRatio)
+renderer.setSize(innerWidth,innerHeight)
+const scene=new THREE.Scene()
+scene.fog=new THREE.Fog(0x87ceeb,30,120)
+const camera=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,0.1,1000)
+camera.position.set(0,10,20)
+const ambient=new THREE.AmbientLight(0xffffff,0.6);scene.add(ambient)
+const sun=new THREE.DirectionalLight(0xffffff,0.8);sun.position.set(100,200,100);scene.add(sun)
+const controls=new THREE.PointerLockControls(camera,document.body)
+document.body.addEventListener('click',()=>{if(!controls.isLocked)controls.lock()})
+const statsEl=document.getElementById('stats')
+let move={forward:false,back:false,left:false,right:false}
+let velocity=new THREE.Vector3()
+let canJump=false
+const world={sizeX:32,sizeY:12,sizeZ:32,blocks:{}}
+const blockTypes=[{name:'Grass',color:0x8db85c},{name:'Dirt',color:0x9b6b3a},{name:'Stone',color:0x8a8f93},{name:'Sand',color:0xe6d09c}]
+let activeBlock=0
+const hotbar=document.getElementById('hotbar')
+blockTypes.forEach((b,i)=>{const s=document.createElement('div');s.className='slot'+(i===0?' active':'');s.textContent=b.name;hotbar.appendChild(s);s.addEventListener('click',()=>{document.querySelectorAll('.slot').forEach(x=>x.classList.remove('active'));s.classList.add('active');activeBlock=i})})
+const geometryBox=new THREE.BoxGeometry(1,1,1)
+const materials=blockTypes.map(b=>new THREE.MeshStandardMaterial({color:b.color}))
+let meshGroup=new THREE.Group();scene.add(meshGroup)
+function setBlock(x,y,z,type){if(x<0||z<0||x>=world.sizeX||z>=world.sizeZ||y<0||y>=world.sizeY)return
+const key=`${x},${y},${z}`
+if(type===null){delete world.blocks[key]}else{world.blocks[key]=type}
+rebuildMesh()}
+function getBlock(x,y,z){return world.blocks[`${x},${y},${z}`]||null}
+function rebuildMesh(){scene.remove(meshGroup);meshGroup=new THREE.Group();for(const k in world.blocks){const parts=k.split(',');const x=parseInt(parts[0]),y=parseInt(parts[1]),z=parseInt(parts[2]);const type=world.blocks[k];const mesh=new THREE.Mesh(geometryBox,materials[type]);mesh.position.set(x+0.5,y+0.5,z+0.5);meshGroup.add(mesh)}scene.add(meshGroup)}
+function generateTerrain(){for(let x=0;x<world.sizeX;x++){for(let z=0;z<world.sizeZ;z++){const h=Math.floor(4+Math.sin(x*0.2)*2+Math.cos(z*0.2)*2+Math.random()*1.5);for(let y=0;y<h;y++){const top=y===h-1?0:1;world.blocks[`${x},${y},${z}`]=top}}}rebuildMesh()}
+generateTerrain()
+const raycaster=new THREE.Raycaster()
+let highlighted=null
+function updateHighlight(){raycaster.setFromCamera(new THREE.Vector2(0,0),camera);const intersects=raycaster.intersectObjects(meshGroup.children);if(intersects.length>0){if(highlighted){scene.remove(highlighted);highlighted=null}const p=intersects[0].point;const faceNormal=intersects[0].face.normal;const gx=Math.floor(p.x+0.0001);const gy=Math.floor(p.y+0.0001);const gz=Math.floor(p.z+0.0001);const box=new THREE.BoxGeometry(1.02,1.02,1.02);const mat=new THREE.MeshBasicMaterial({color:0xffff00,wireframe:true});const hmesh=new THREE.Mesh(box,mat);hmesh.position.set(gx+0.5,gy+0.5,gz+0.5);highlighted=hmesh;scene.add(highlighted)}else{if(highlighted){scene.remove(highlighted);highlighted=null}}}
+function placeBlockAtIntersect(){raycaster.setFromCamera(new THREE.Vector2(0,0),camera);const inter=raycaster.intersectObjects(meshGroup.children);if(inter.length===0)return;const p=inter[0].point;const n=inter[0].face.normal;const gx=Math.floor(p.x+0.0001);const gy=Math.floor(p.y+0.0001);const gz=Math.floor(p.z+0.0001);const px=gx+Math.round(n.x);const py=gy+Math.round(n.y);const pz=gz+Math.round(n.z);setBlock(px,py,pz,activeBlock)}
+function removeBlockAtIntersect(){raycaster.setFromCamera(new THREE.Vector2(0,0),camera);const inter=raycaster.intersectObjects(meshGroup.children);if(inter.length===0)return;const p=inter[0].point;const gx=Math.floor(p.x+0.0001);const gy=Math.floor(p.y+0.0001);const gz=Math.floor(p.z+0.0001);setBlock(gx,gy,gz,null)}
+let prevTime=performance.now()
+function animate(){requestAnimationFrame(animate);const time=performance.now();const delta=(time-prevTime)/1000;prevTime=time;updateHighlight();const speed=10;let vx=0,vz=0;if(move.forward)vz=-speed*delta;else if(move.back)vz=speed*delta;if(move.left)vx=-speed*delta;else if(move.right)vx=speed*delta;controls.moveRight(vx);controls.moveForward(vz);velocity.y+=-9.8*delta;controls.getObject().position.y+=velocity.y*delta;if(controls.getObject().position.y<2){velocity.y=0;controls.getObject().position.y=2;canJump=true}renderer.render(scene,camera);statsEl.textContent=`Blocks: ${Object.keys(world.blocks).length}`}
+animate()
+window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)})
+document.addEventListener('keydown',e=>{if(e.code==='KeyW')move.forward=true;if(e.code==='KeyS')move.back=true;if(e.code==='KeyA')move.left=true;if(e.code==='KeyD')move.right=true;if(e.code==='Space'&&canJump){velocity.y=5;canJump=false}if(e.code.startsWith('Digit')){const n=parseInt(e.code.slice(5))-1;if(n>=0&&n<blockTypes.length){document.querySelectorAll('.slot').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.slot')[n].classList.add('active');activeBlock=n}}})
+document.addEventListener('keyup',e=>{if(e.code==='KeyW')move.forward=false;if(e.code==='KeyS')move.back=false;if(e.code==='KeyA')move.left=false;if(e.code==='KeyD')move.right=false})
+document.addEventListener('pointerdown',e=>{if(e.button===0){removeBlockAtIntersect()}if(e.button===2){placeBlockAtIntersect()}})
+document.addEventListener('contextmenu',e=>e.preventDefault())
+</script>
+</body>
+  </html>
